@@ -23,6 +23,8 @@
 #ifndef _EDGE_IMPULSE_AT_COMMANDS_SAMPLER_H_
 #define _EDGE_IMPULSE_AT_COMMANDS_SAMPLER_H_
 
+#include "onnx_tidl.h"
+#include <stdint.h>
 #define EDGE_STRINGIZE_(x) #x
 #define EDGE_STRINGIZE(x) EDGE_STRINGIZE_(x)
 
@@ -37,6 +39,7 @@
 
 #define EDGE_SAMPLER_BUFFER_SIZE            512
 
+extern void print_memory_info();
 /**
  * Sample data at a high frequency and then write them to disk
  */
@@ -104,7 +107,7 @@ public:
         if (!file) {
             return;
         }
-
+        
         printf("\tFile name: %s\n", filename);
 
         _sample_thread = new Thread(osPriorityLow, OS_STACK_SIZE, nullptr, "sample-thread");
@@ -120,8 +123,8 @@ public:
                 break;
             }
         }
-
-        printf("Starting in %d seconds...\n", start_delay);
+        
+        printf("Starting in %d milliseconds...\n", start_delay);
 
         ThisThread::sleep_for(start_delay);
 
@@ -137,43 +140,47 @@ public:
 
         Timer timer;
 
+        
         uint64_t total_sample_count = 0;
         uint64_t samples_timing_missed = 0;
-
-        int64_t break_at = timer.read_us() + (_config->sample_length_ms * 1000);
+        int64_t next_tick;
+        uint64_t break_at = timer.read_high_resolution_us() + static_cast<uint64_t>(_config->sample_length_ms * 1000);
 
         timer.start();
 
         while (1) {
-            int64_t next_tick = timer.read_us() + static_cast<int64_t>(_config->sample_interval_ms * 1000);
-
+            next_tick = timer.read_high_resolution_us() + static_cast<int64_t>(_config->sample_interval_ms * 1000);
+//          printf("Tick time: %lld\n", next_tick);
             // so... we allocate a new buffer here... and it will be cleared after we write to
             // sensor_aq_add_data
             // this is done because file system write is not guaranteed to be less than sampling freq.
-            float *values = (float*)malloc(sizeof(float) * _aq_ctx.axis_count);
+            float *values = (float*)malloc(sizeof(float) * _aq_ctx.axis_count);              
             data_fn(values, _aq_ctx.axis_count);
-
+//          printf("%f, %f, %f\n", values[0], values[1], values[2]);
             _sample_queue.call(callback(this, &EdgeSampler::write_sensor_data_internal), &_aq_ctx, values, sensors_count);
 
             total_sample_count++;
-
-            if (timer.read_us() > next_tick) {
+            if (timer.read_high_resolution_us() > next_tick) {
                 samples_timing_missed++;
             }
-
+            
+//          print_memory_info();
             // so... now we have this issue that we need to be able to yield back to the sample thread
             // so we cannot busy-loop here, but I still want accurate timing
-
             // let's sleep for (wait_time / 1000) - 1 ms. then busy loop from there
-            uint64_t wait_time = next_tick - timer.read_us();
-
+            uint64_t wait_time = next_tick - timer.read_high_resolution_us();
+            int8_t delay = (wait_time / 1000 -1); 
+//          printf("wait time: %d ms\n", delay);
             // sleep OK (/1000 already floors it)
-            ThisThread::sleep_for((wait_time / 1000) - 1);
-
+//          ThisThread::sleep_for((wait_time / 1000) - 1);
+            ThisThread::sleep_for(delay);
+            
             // busy loop til next tick
-            while (next_tick > timer.read_us());
-
-            if (timer.read_us() > break_at) break;
+            while (timer.read_high_resolution_us() < next_tick){
+            };
+            if (timer.read_high_resolution_us() > break_at) {
+                break;
+            }
         }
 
         if (statusLed) {
@@ -191,6 +198,7 @@ public:
         // end it
         printf("Done sampling\n");
         printf("Total samples collected: %llu\n", total_sample_count);
+        printf("Total missed samples: %llu\n", samples_timing_missed);
 
         if (_ws_client->is_connected()) {
             _ws_client->send_sample_uploading();
@@ -198,7 +206,11 @@ public:
 
         finish();
         upload_file(file, filename);
-        fclose(file);
+        int err = fclose(file);
+        printf("%s\n", (err < 0 ? "Fail :(" : "OK"));
+        if (err < 0) {
+            error("error: %s (%d)\n", strerror(errno), -errno);
+        }
 
         printf("OK\n");
     }

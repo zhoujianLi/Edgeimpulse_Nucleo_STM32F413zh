@@ -36,8 +36,8 @@
 #endif
 
 #ifdef EI_SENSOR_AQ_BLOCKDEVICE
-#include "SlicingBlockDevice.h"
-extern SlicingBlockDevice temp_bd;
+#include <FlashIAPBlockDevice.h>
+extern FlashIAPBlockDevice temp_bd;
 #endif
 
 /**
@@ -108,6 +108,8 @@ static bool ei_mbed_fs_read_file(const char *path, void(*data_fn)(uint8_t*, size
     FILE *file = fopen(path, "r+");
     if (!file) {
         return false;
+    }else {
+        printf("File open success!\n");
     }
 
     // we're encoding as base64 in AT+READFILE, so this needs to be divisable by 3

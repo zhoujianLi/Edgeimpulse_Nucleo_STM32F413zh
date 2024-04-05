@@ -27,7 +27,7 @@
 #include "stdint.h"
 
 /* Prototypes -------------------------------------------------------------- */
-bool ei_microphone_inference_start(uint32_t n_samples);
+//bool ei_microphone_inference_start(uint32_t n_samples);
 bool ei_microphone_inference_record(void);
 int ei_microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr);
 bool ei_microphone_inference_end(void);

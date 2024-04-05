@@ -12,3 +12,10 @@ source/edge-impulse-sdk/utensor/CMakeCache.txt
 source/edge-impulse-sdk/utensor/cmake_install.cmake
 source/edge-impulse-sdk/utensor/CTestTestfile.cmake
 source/edge-impulse-sdk/utensor/Makefile
+BUILD
+.mbed
+compile_commands.json
+.clangd
+.cache
+X_NUCLEO_IKS01A3
+USBHOST

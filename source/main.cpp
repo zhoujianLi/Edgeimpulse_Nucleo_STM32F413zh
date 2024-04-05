@@ -21,8 +21,10 @@
  */
 
 #include "mbed.h"
+#include <FlashIAPBlockDevice.h>
+#include <flash_data.h>
 #include "mbed_mem_trace.h"
-#include "LittleFileSystem.h"
+#include "LittleFileSystem2.h"
 #include "model-parameters/model_metadata.h"
 #include "ei_run_classifier.h"
 #include "NTPClient.h"
@@ -32,16 +34,25 @@
 #include "sensor_aq.h"
 #include "ei_ws_client.h"
 #include "model_metadata.h"
+
 #include "ei_accelerometer.h"
-#include "ei_microphone.h"
-#include "ei_microphone_inference.h"
+
+
+// Set up two blocks on MCU FlashIAP blockdevice, one for the file system, and one for temporary files
+#define FIRST_DB_BLOCK (ADDR_FLASH_SECTOR_8)
+#define SECOND_DB_BLOCK (ADDR_FLASH_SECTOR_14)
+static FlashIAPBlockDevice fs_bd(FIRST_DB_BLOCK, 6* 128 * 1024);
+FlashIAPBlockDevice temp_bd(SECOND_DB_BLOCK, 2 * 128 * 1024);
+
 
 // set up two slices on block device, one for the file system, and one for temporary files
-static BlockDevice *full_bd = BlockDevice::get_default_instance();
-static SlicingBlockDevice fs_bd(full_bd, 0x0, 6 * 1024 * 1024);
-SlicingBlockDevice temp_bd(full_bd, 6 * 1024 * 1024, 8 * 1024 * 1024);
+//static BlockDevice *full_bd = BlockDevice::get_default_instance();
+//static SlicingBlockDevice fs_bd(full_bd, 0x0, 6 * 1024 * 1024);
+//SlicingBlockDevice temp_bd(full_bd, 6 * 1024 * 1024, 8 * 1024 * 1024);
 
-static LittleFileSystem fs("fs", &fs_bd, 256, 512, 512);
+//static LittleFileSystem fs("fs", &fs_bd, 256, 512, 512);
+//To remove block size limitaions on LittleFileSystem class, we need to use LittleFileSystem2 class
+static LittleFileSystem2 fs("fs", &fs_bd);
 EdgeWsClient *ws_client;
 EventQueue main_application_queue;
 EdgeSampler *sampler;
@@ -55,15 +66,25 @@ static bool network_connected = false;
 
 // this lists all the sensors that this device has (initialized later on, when we know whether
 // sensors are present on the board)
-static ei_sensor_t sensor_list[2] = { 0 };
+static ei_sensor_t sensor_list[1] = { 0 };
 
-static bool microphone_present;
 
 void print_memory_info() {
+    // allocate enough room for every thread's stack statistics
+    int cnt = osThreadGetCount();
+    mbed_stats_stack_t *stats = (mbed_stats_stack_t*) malloc(cnt * sizeof(mbed_stats_stack_t));
+
+    cnt = mbed_stats_stack_get_each(stats, cnt);
+    for (int i = 0; i < cnt; i++) {
+        printf("Thread: 0x%lX, Stack size: %lu / %lu\r\n", stats[i].thread_id, stats[i].max_size, stats[i].reserved_size);
+    }
+    free(stats);
+
     // Grab the heap statistics
     mbed_stats_heap_t heap_stats;
     mbed_stats_heap_get(&heap_stats);
     printf("Heap size: %lu / %lu bytes (max: %lu)\r\n", heap_stats.current_size, heap_stats.reserved_size, heap_stats.max_size);
+    
 }
 
 bool connect_to_wifi() {
@@ -182,131 +203,6 @@ void run_nn(bool debug) {
     }
 }
 
-#elif defined(EI_CLASSIFIER_SENSOR) && EI_CLASSIFIER_SENSOR == EI_CLASSIFIER_SENSOR_MICROPHONE
-
-void run_nn(bool debug) {
-    if (EI_CLASSIFIER_FREQUENCY != 16000) {
-        ei_printf("ERR: Frequency is %d but can only sample at 16000Hz\n", (int)EI_CLASSIFIER_FREQUENCY);
-        return;
-    }
-
-    // summary of inferencing settings (from model_metadata.h)
-    printf("Inferencing settings:\n");
-    printf("\tInterval: %.2f ms.\n", (float)EI_CLASSIFIER_INTERVAL_MS);
-    printf("\tFrame size: %d\n", EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE);
-    printf("\tSample length: %d ms.\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16);
-    printf("\tNo. of classes: %d\n", sizeof(ei_classifier_inferencing_categories) / sizeof(ei_classifier_inferencing_categories[0]));
-
-    printf("Starting inferencing, press 'b' to break\n");
-
-    while (1) {
-        printf("Starting inferencing in 2 seconds...\n");
-
-        // instead of wait_ms, we'll wait on the signal, this allows threads to cancel us...
-        if (ei_sleep(2000) != EI_IMPULSE_OK) {
-            break;
-        }
-
-        printf("Recording\n");
-
-        bool m = ei_microphone_record(EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16, 20, false);
-        if (!m) {
-            printf("ERR: Failed to record audio...\n");
-            break;
-        }
-
-        printf("Recording OK\n");
-
-        signal_t signal = ei_microphone_get_signal();
-        ei_impulse_result_t result = { 0 };
-
-        EI_IMPULSE_ERROR r = run_classifier(&signal, &result, debug);
-        if (r != EI_IMPULSE_OK) {
-            printf("ERR: Failed to run classifier (%d)\n", r);
-            break;
-        }
-
-        // print the predictions
-        printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
-            result.timing.dsp, result.timing.classification, result.timing.anomaly);
-        for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-            printf("    %s: %.5f\n", result.classification[ix].label, result.classification[ix].value);
-        }
-#if EI_CLASSIFIER_HAS_ANOMALY == 1
-        printf("    anomaly score: %.3f\n", result.anomaly);
-#endif
-    }
-}
-
-void run_nn_continuous(bool debug) {
-
-    if (EI_CLASSIFIER_FREQUENCY != 16000) {
-        ei_printf("ERR: Frequency is %d but can only sample at 16000Hz\n", (int)EI_CLASSIFIER_FREQUENCY);
-        return;
-    }
-
-    int print_results = -(EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW);
-
-    // summary of inferencing settings (from model_metadata.h)
-    printf("Inferencing settings:\n");
-    printf("\tInterval: %.2f ms.\n", (float)EI_CLASSIFIER_INTERVAL_MS);
-    printf("\tFrame size: %d\n", EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE);
-    printf("\tSample length: %d ms.\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16);
-    printf("\tNo. of classes: %d\n", sizeof(ei_classifier_inferencing_categories) / sizeof(ei_classifier_inferencing_categories[0]));
-
-    printf("Starting inferencing, press 'b' to break\n");
-
-    run_classifier_init();
-    ei_microphone_inference_start(EI_CLASSIFIER_SLICE_SIZE);
-
-    while (1) {
-
-        bool m = ei_microphone_inference_record();
-        if (!m) {
-            printf("ERR: Failed to record audio...\n");
-            break;
-        }
-
-        signal_t signal;
-        signal.total_length = EI_CLASSIFIER_SLICE_SIZE;
-        signal.get_data = &ei_microphone_audio_signal_get_data;
-        ei_impulse_result_t result = { 0 };
-
-        EI_IMPULSE_ERROR r = run_classifier_continuous(&signal, &result, debug);
-        if (r != EI_IMPULSE_OK) {
-            printf("ERR: Failed to run classifier (%d)\n", r);
-            break;
-        }
-
-        if (++print_results >= (EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW >> 1)) {
-
-            // print the predictions
-            printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
-                    result.timing.dsp, result.timing.classification, result.timing.anomaly);
-            for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-                printf("    %s: %.5f\n", result.classification[ix].label,
-                        result.classification[ix].value);
-            }
-#if EI_CLASSIFIER_HAS_ANOMALY == 1
-            printf("    anomaly score: %.3f\n", result.anomaly);
-#endif
-
-            print_results = 0;
-        }
-    }
-
-    ei_microphone_inference_end();
-    run_classifier_deinit();
-}
-
-void run_nn_continuous_normal() {
-    run_nn_continuous(false);
-}
-
-void run_nn_continuous_debug() {
-    run_nn_continuous(true);
-}
-
 #else
 void run_nn(bool debug) {}
 #error "EI_CLASSIFIER_SENSOR not configured, cannot configure `run_nn`"
@@ -388,15 +284,7 @@ int get_sensor_list(const ei_sensor_t **list, size_t *list_size) {
     sensor_list[ix].max_sample_length_s = 5 * 60;
     sensor_list[ix].frequencies[0] = 62.5f;
     sensor_list[ix].frequencies[1] = 100.0f;
-    ix++;
-    if (microphone_present) {
-        sensor_list[ix].name = "Built-in microphone";
-        sensor_list[ix].start_sampling_cb = &ei_microphone_sample_start;
-        sensor_list[ix].max_sample_length_s = 1 * 60;
-        sensor_list[ix].frequencies[0] = 16000.0f;
-        ix++;
-        sensor_count++;
-    }
+
 
     *list = sensor_list;
     *list_size = sensor_count;
@@ -419,11 +307,82 @@ void fill_memory() {
     printf("Allocated: %u bytes\n", allocated);
 }
 
+void reformat_lfs(){
+    printf("Reformatting file system... \n");
+    int err = fs.reformat(&fs_bd);
+    printf("%s\n", (err ? "Reformat Fail :(" : "Reformat Done"));
+    if (err) {
+        error("error: %s (%d)\n", strerror(-err), err);
+    }
+    printf("System rebooting... \n");
+    NVIC_SystemReset();
+}
+
+const char *sec2str(nsapi_security_t sec)
+{
+    switch (sec) {
+        case NSAPI_SECURITY_NONE:
+            return "None";
+        case NSAPI_SECURITY_WEP:
+            return "WEP";
+        case NSAPI_SECURITY_WPA:
+            return "WPA";
+        case NSAPI_SECURITY_WPA2:
+            return "WPA2";
+        case NSAPI_SECURITY_WPA_WPA2:
+            return "WPA/WPA2";
+        case NSAPI_SECURITY_UNKNOWN:
+        default:
+            return "Unknown";
+    }
+}
+
+
+void scan_wifi_available() {
+    WiFiAccessPoint *ap;
+    WiFiInterface *wifi;
+
+    wifi = WiFiInterface::get_default_instance();
+    if (!wifi) {
+        return;
+    }
+    printf("Scan:\n");
+    int count = wifi->scan(NULL,0);
+
+    if (count <= 0) {
+        printf("scan() failed with return value: %d\n", count);
+        return;
+    }
+
+    
+        /* Limit number of network arbitrary to 15 */
+    int count_limit = count < 15 ? count : 15;
+    printf("scan wifi numble: %d\n", count);
+    ap = new WiFiAccessPoint[count_limit];
+    nsapi_size_or_error_t sz = wifi->scan(ap, count_limit);
+
+    if (sz < 0) {
+        printf("scan failed (%d)\n", sz);
+        return;
+    }
+
+    for (int i = 0; i < count_limit; i++) {
+        printf("Network: %s secured: %s BSSID: %hhX:%hhX:%hhX:%hhx:%hhx:%hhx RSSI: %hhd Ch: %hhd\n", ap[i].get_ssid(),
+               sec2str(ap[i].get_security()), ap[i].get_bssid()[0], ap[i].get_bssid()[1], ap[i].get_bssid()[2],
+               ap[i].get_bssid()[3], ap[i].get_bssid()[4], ap[i].get_bssid()[5], ap[i].get_rssi(), ap[i].get_channel());
+    }
+    printf("%d networks available.\n", count_limit);
+
+    delete[] ap;
+    delete wifi;
+}
+
 int main() {
     // mbed_mem_trace_set_callback(mbed_mem_trace_default_callback);
 
     printf("\n\nHello from the Edge Impulse Device SDK.\n");
     printf("Compiled on %s at %s\n", __DATE__, __TIME__);
+
 
     int err = fs.mount(&fs_bd);
     printf("Mounting file system: %s\n", (err ? "Fail :(" : "OK"));
@@ -451,8 +410,10 @@ int main() {
     }
 
     // Sensor init
-    ei_accelerometer_init();
-    microphone_present = ei_microphone_init();
+    if(!ei_accelerometer_init()){
+        printf("sensor initialization error!\n");
+        return 1;
+    }
 
     // intialize configuration
     ei_config_ctx_t config_ctx = { 0 };
@@ -486,16 +447,14 @@ int main() {
 
     ei_at_register_generic_cmds();
     ei_at_cmd_register("FILLMEMORY", "Try and fill the full RAM, to report free heap stats", fill_memory);
+    ei_at_cmd_register("REFORMATTINGFS", "Reformat the filesystem on FLASHIAP block ", reformat_lfs);
+    ei_at_cmd_register("WIFILIST?", "Display available wifis around", scan_wifi_available);
     ei_at_cmd_register("RUNIMPULSE", "Run the impulse", run_nn_normal);
     ei_at_cmd_register("RUNIMPULSEDEBUG", "Run the impulse with debug messages", run_nn_debug);
-    #if defined(EI_CLASSIFIER_SENSOR) && EI_CLASSIFIER_SENSOR == EI_CLASSIFIER_SENSOR_MICROPHONE
-    ei_at_cmd_register("RUNIMPULSECONT", "Run the impulse continuously", run_nn_continuous_normal);
-    ei_at_cmd_register("RUNIMPULSECONTDEBUG", "Run the impulse continuously with debug messages", run_nn_continuous_debug);
-    #endif
 
-    if (ei_config_has_wifi()) {
-        connect_to_wifi();
-    }
+//    if (ei_config_has_wifi()) {
+//        connect_to_wifi();
+//    }
 
     printf("Type AT+HELP to see a list of commands.\n");
 

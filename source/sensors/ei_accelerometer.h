@@ -23,8 +23,9 @@
 #ifndef _EI_ACCELEROMETER_H_
 #define _EI_ACCELEROMETER_H_
 
-#include "stm32l475e_iot01_accelero.h"
+#include "BSP_stm32f413zh_ika01a3_accelero.h"
 #include "ei_sampler.h"
+#include "onnx_tidl.h"
 
 extern EdgeSampler *sampler;
 extern DigitalOut led;
@@ -34,7 +35,7 @@ bool ei_accelerometer_init() {
 }
 
 void ei_accelerometer_sample_read_data(float *values, size_t value_size) {
-    int16_t accel_data[3] = { 0 };
+    int32_t accel_data[value_size] = { 0 };
     BSP_ACCELERO_AccGetXYZ(accel_data);
 
     values[0] = static_cast<float>(accel_data[0]) / 100.0f;
@@ -60,6 +61,7 @@ bool ei_accelerometer_sample_start() {
         // The axes which you'll use. The units field needs to comply to SenML units (see https://www.iana.org/assignments/senml/senml.xhtml)
         { { "accX", "m/s2" }, { "accY", "m/s2" }, { "accZ", "m/s2" } }
     };
+
 
     sampler->start_sampling(&payload, 2000, &ei_accelerometer_sample_read_data, &led);
 

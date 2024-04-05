@@ -25,7 +25,7 @@
 #include "ei_classifier_porting.h"
 #include "mbed.h"
 #include "stdlib.h"
-#include "stm32l475e_iot01_audio.h"
+//#include "stm32l475e_iot01_audio.h"
 #include "ei_microphone_inference.h"
 #include "numpy.hpp"
 
@@ -97,6 +97,7 @@ static void pdm_data_ready_inference_callback(bool halfOrCompleteTransfer)
  *
  * @return     false on error
  */
+ /*
 bool ei_microphone_inference_start(uint32_t n_samples)
 {
     inference.buffers[0] = (int16_t *)malloc(n_samples * sizeof(int16_t));
@@ -142,7 +143,7 @@ bool ei_microphone_inference_start(uint32_t n_samples)
 
     return true;
 }
-
+*/
 /**
  * @brief      Wait for a full buffer
  *
@@ -183,6 +184,7 @@ int ei_microphone_audio_signal_get_data(size_t offset, size_t length, float *out
  *
  * @return     false on error
  */
+ /*
 bool ei_microphone_inference_end(void)
 {
     int32_t ret = BSP_AUDIO_IN_Stop(AUDIO_INSTANCE);
@@ -197,7 +199,7 @@ bool ei_microphone_inference_end(void)
 
     return true;
 }
-
+*/
 /**
  * @brief      Set audio handle callback
  * @details    Creates a seperation between sample collection for ingestion and inferencing

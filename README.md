@@ -1,4 +1,4 @@
-# Edge Impulse firmware for ST B-L475E-IOT01A
+# Edge Impulse firmware for ST Nucleo board STM32F413ZH with X-Nucleo-IKS01A3 and ESP8266 module
 
 [Edge Impulse](https://www.edgeimpulse.com) enables developers to create the next generation of intelligent device solutions with embedded Machine Learning. This repository contains the Edge Impulse firmware for the ST B-L475E-IOT01A development board. This device supports all Edge Impulse device features, including ingestion, remote management and inferencing.
 
@@ -8,7 +8,7 @@
 
 **Hardware**
 
-* [DISCO-L475VG-IOT01A](https://os.mbed.com/platforms/ST-Discovery-L475E-IOT01A/) development board.
+* ST Nucleo board STM32F413ZH development board.
 
 **Software**
 
@@ -42,69 +42,3 @@ $ mbed config -G PROTOCOL SSH
 
 ## Building the device firmware
 
-1. Clone this repository:
-
-    ```
-    $ git clone https://github.com/edgeimpulse/firmware-st-b-l475e-iot01a
-    ```
-
-1. Update dependencies:
-
-    ```
-    $ mbed deploy
-    ```
-
-1. Fix an outdated file in the `mbed-os` dependency:
-
-    ```
-    cp source/edge-impulse-sdk/CMSIS/Core/Include/cmsis_gcc.h mbed-os/cmsis/TARGET_CORTEX_M/cmsis_gcc.h
-    ```
-
-1. Build and flash this project:
-
-    ```
-    $ mbed compile -t GCC_ARM -m DISCO_L475VG_IOT01A --profile=debug -f
-    ```
-
-1. Attach a serial monitor to the board on baud rate 115,200 to see the output.
-
-    On macOS you can use [Serial.app](https://www.decisivetactics.com/products/serial/) (recommended!) or connect via `screen`:
-
-    1. Find the handle for your board:
-
-        ```
-        $ ls /dev/tty.usbm*
-        /dev/tty.usbmodem401203
-        ```
-
-    1. Then connect via:
-
-        ```
-        $ screen /dev/tty.usbmodem401203 115200
-        ```
-
-    1. To exit, press: `CTRL+A` then `CTRL+\` then press `y`.
-
-## Debugging through Visual Studio Code
-
-1. Install STLink:
-
-    ```
-    $ brew install stlink
-    ```
-
-1. Install mbed-vscode-generator:
-
-    ```
-    $ npm install mbed-vscode-generator -g
-    ```
-
-1. Generate the debugger files (run from the root folder of this project, not from the firmware folder):
-
-    ```
-    $ mbed-vscode-generator -i firmware/ -o .vscode/ --debugger stlink
-    ```
-
-1. Just press 'Run' in Visual Studio Code to build and debug.
-
-If the debugger does not properly detach, run `killall st-util`.

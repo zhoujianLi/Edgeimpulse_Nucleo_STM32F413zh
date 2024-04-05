@@ -23,7 +23,7 @@
 #ifndef _EI_MICROPHONE_H_
 #define _EI_MICROPHONE_H_
 
-#include "stm32l475e_iot01_audio.h"
+//#include "stm32l475e_iot01_audio.h"
 #include "ei_sampler.h"
 #include "ei_microphone_inference.h"
 
@@ -193,7 +193,7 @@ static void get_audio_from_dma_buffer(bool halfOrCompleteTransfer)
 void BSP_AUDIO_IN_Error_CallBack(uint32_t Instance) {
     printf("BSP_AUDIO_IN_Error_CallBack\n");
 }
-
+/*
 bool ei_microphone_init() {
     mic_params.BitsPerSample = 16;
     mic_params.ChannelsNbr = AUDIO_CHANNELS;
@@ -208,7 +208,8 @@ bool ei_microphone_init() {
     }
     return true;
 }
-
+*/
+/*
 bool ei_microphone_record(uint32_t sample_length_ms, uint32_t start_delay_ms, bool print_start_messages) {
     if (is_recording) return false;
 
@@ -445,10 +446,11 @@ bool ei_microphone_record(uint32_t sample_length_ms, uint32_t start_delay_ms, bo
 
     return true;
 }
-
+*/
 /**
  * Sample raw data
  */
+ /*
 bool ei_microphone_sample_start() {
     // this sensor does not have settable interval...
     ei_config_set_sample_interval(static_cast<float>(1000) / static_cast<float>(AUDIO_SAMPLING_FREQUENCY));
@@ -485,7 +487,7 @@ bool ei_microphone_sample_start() {
 
     return true;
 }
-
+*/
 /**
  * Get raw audio signal data
  */

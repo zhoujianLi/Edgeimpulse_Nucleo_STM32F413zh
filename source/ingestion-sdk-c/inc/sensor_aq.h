@@ -247,7 +247,7 @@ static int sensor_aq_flush_buffer(sensor_aq_ctx *ctx) {
     if (res != QCBOR_SUCCESS) {
         return res;
     }
-
+    
     int err = sensor_aq_update_sig_and_write_to_file(ctx, (uint8_t*)encoded.ptr, encoded.len);
     if (err != AQ_OK) {
         return err;
